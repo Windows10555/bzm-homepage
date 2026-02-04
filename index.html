@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="zh-SG">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>BZM的主页</title>
+    <meta name="keywords" content="BZM,BZM23,23,WTek,个人主页">
+    <meta name="description" content="BZM的个人主页 VRC玩家 WTek团队成员之一">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        @import url('https://unpkg.com/@chinese-fonts/stdgt@2.0.0/dist/%E4%B8%8A%E5%9B%BE%E4%B8%9C%E8%A7%82%E4%BD%93-%E5%B8%B8%E8%A7%84/result.css'); 
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* 防止页面本身滚动，只允许卡片内部滚动 */
+            background-color: #000;
+            font-family: 'STDongGuanTi', sans-serif;
+            color: #eee;
+        }
+
+        /* 3D 画布层，必须在最底层 */
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* UI 层，覆盖在 3D 之上 */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none; /* 让鼠标事件穿透到 Canvas，除非点到了具体 UI 元素 */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* 允许交互的 UI 元素类 */
+        .interactive {
+            pointer-events: auto;
+        }
+
+        /* 毛玻璃通用样式 */
+        .glass {
+            background: rgba(20, 20, 35, 0.4);
+            backdrop-filter: blur(12px) saturate(180%);
+            -webkit-backdrop-filter: blur(12px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        /* 顶部 Banner */
+        .top-banner {
+            width: 100%;
+            height: 60px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            z-index: 50;
+        }
+
+        /* 卡片容器 - 居中且带有入场动画 */
+        .card-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -150%) scale(0.9); /* 初始位置在上面一点，且不可见 */
+            opacity: 0;
+            transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.6s ease;
+            z-index: 40;
+            max-width: 90vw;
+            max-height: 70vh;
+            width: 450px;
+            /* 霓虹灯边框容器 */
+            padding: 2px; 
+            border-radius: 4px; /* 直角边框稍微带一点点圆润防锯齿，或者纯直角 */
+            overflow: hidden;
+        }
+
+        .card-container.active {
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 1;
+        }
+
+        /* 霓虹灯流光背景 */
+        .neon-border-bg {
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: conic-gradient(
+                from 0deg, 
+                transparent 0deg, 
+                #a855f7 90deg,   /* 紫色 */
+                #ec4899 180deg,  /* 粉色 */
+                #3b82f6 270deg,  /* 蓝色 */
+                #a855f7 360deg
+            );
+            animation: rotate-border 4s linear infinite;
+            z-index: -1;
+        }
+
+        @keyframes rotate-border {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 卡片本体 */
+        .card-content {
+            position: relative;
+            background: rgba(10, 10, 15, 0.85); /* 深色背景盖住中间的霓虹灯，只露边 */
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* 隐藏滚动条 */
+            border-radius: 2px;
+        }
+
+        /* 自定义滚动容器 */
+        .scroll-area {
+            overflow-y: auto;
+            height: 100%;
+            padding: 1.5rem;
+            scrollbar-width: none; /* Firefox */
+        }
+        .scroll-area::-webkit-scrollbar {
+            display: none; /* Chrome/Safari */
+        }
+
+        /* 边缘进度条 (贪吃蛇样式) */
+        .scroll-progress-bar {
+            position: absolute;
+            background-color: #d8b4fe; /* 亮紫色 */
+            z-index: 20;
+            transition: width 0.1s, height 0.1s;
+        }
+        /* 四条边 */
+        #bar-top { top: 0; left: 0; height: 3px; width: 0; }
+        #bar-right { top: 0; right: 0; width: 3px; height: 0; }
+        #bar-bottom { bottom: 0; right: 0; height: 3px; width: 0; }
+        #bar-left { bottom: 0; left: 0; width: 3px; height: 0; }
+
+        /* 头像 */
+        .avatar {
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
+            float: left;
+            margin-right: 1rem;
+            margin-bottom: 0.5rem;
+            border: 2px solid #a855f7;
+            /* 直边 */
+            border-radius: 0; 
+            shape-outside: inset(0px); /* 文字环绕 */
+        }
+
+        /* 底部 Banner */
+        .bottom-banner {
+            width: 100%;
+            height: 50px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* 复位按钮 */
+        #reset-cam-btn {
+            position: absolute;
+            bottom: 80px;
+            right: 20px;
+            padding: 8px 16px;
+            border: 1px solid #a855f7;
+            color: #a855f7;
+            background: rgba(0,0,0,0.5);
+            cursor: pointer;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            font-size: 0.8rem;
+        }
+        #reset-cam-btn.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* 指向黑洞的箭头 */
+        #blackhole-pointer {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border: 2px solid #a855f7;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 5;
+            transition: opacity 0.3s;
+        }
+
+        /* 文本替换动画 */
+        .text-swap-enter {
+            animation: fadeIn 0.3s forwards;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 链接样式 */
+        .link-item {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            margin-top: 8px;
+            border: 1px solid rgba(168, 85, 247, 0.2);
+            transition: background 0.2s;
+            text-decoration: none;
+            color: #eee;
+        }
+        .link-item:hover {
+            background: rgba(168, 85, 247, 0.2);
+        }
+        .link-icon {
+            width: 32px;
+            text-align: center;
+            font-size: 1.2rem;
+            margin-right: 10px;
+            color: #d8b4fe;
+        }
+    </style>
+</head>
+<body style="user-select: none;">
+
+    <!-- 3D 容器 -->
+    <div id="canvas-container"></div>
+
+    <!-- UI 交互层 -->
+    <div id="ui-layer">
+        
+        <!-- 顶部 Banner -->
+        <div class="glass top-banner interactive" id="top-banner" onclick="yanaToggleCard()">
+            <div id="banner-text" class="text-xl tracking-widest font-light text-purple-200">
+                <span class="font-bold">NAME</span> : LINKS
+            </div>
+            <div id="banner-icon" class="hidden text-2xl text-purple-400">
+                <i class="fa-solid fa-chevron-up"></i>
+            </div>
+        </div>
+
+        <!-- 中间卡片 (初始隐藏) -->
+        <div class="card-container interactive" id="main-card">
+            <div class="neon-border-bg"></div> <!-- 霓虹灯背景 -->
+            
+            <div class="card-content">
+                <!-- 滚动进度条 -->
+                <div id="bar-top" class="scroll-progress-bar"></div>
+                <div id="bar-right" class="scroll-progress-bar"></div>
+                <div id="bar-bottom" class="scroll-progress-bar"></div>
+                <div id="bar-left" class="scroll-progress-bar"></div>
+
+                <!-- 滚动区域 -->
+                <div class="scroll-area" id="card-scroll-area">
+                    <!-- 头像 (直角) -->
+                    <img src="https://weavatar.com/avatar/87857c848cb4f21102b15ac89074dbb2c97a10cb8c9a1541a3bd43f3592e9401?s=512" alt="Avatar" class="avatar">
+                    
+                    <!-- 简介 -->
+                    <h2 class="text-2xl font-bold text-purple-400 mb-2">BZM</h2>
+                    <p class="text-sm text-gray-300 leading-relaxed text-justify mb-4" style="text-align: center;">
+                        那天发生的事情让我再也不需要继续炫压抑地遇到谁都喊 我喜欢你 了 我喜欢你的词语还蛮什么的 vrc真美好阿 and 如果你喜欢动漫和烂梗 不管是欧美还是亚洲的 加我就酱
+                    </p>
+
+                    <div class="border-t border-purple-900/50 my-4"></div>
+
+                    <!-- 链接区 -->
+                    <div class="space-y-2">                        
+                        <a href="https://steamcommunity.com/profiles/76561199422940815/" class="link-item">
+                            <div class="link-icon"><i class="fa-brands fa-steam"></i></div>
+                            <div>
+                                <div class="font-bold text-sm">Steam</div>
+                                <div class="text-xs text-gray-400">如果你想要跟我讨论一些关于 战雷 战地6/1 欧卡 半剑 arma3 等100+我已经入库的游戏 可以加我</div>
+                            </div>
+                        </a>
+
+                        <a href="https://vrchat.com/home/user/usr_02e2594b-5ccb-476a-9579-85956f70590b" class="link-item">
+                            <div class="link-icon"><i class="fa-solid fa-vr-cardboard"></i></div>
+                            <div>
+                                <div class="font-bold text-sm">VRChat</div>
+                                <div class="text-xs text-gray-400">已经有人 不e</div>
+                            </div>
+                        </a>
+
+                        <a href="https://wtek.irin-wakako.uk" class="link-item">
+                            <div class="link-icon"><i class="fa-solid fa-globe"></i></div>
+                            <div>
+                                <div class="font-bold text-sm">WTek</div>
+                                <div class="text-xs text-gray-400">所归属的团队，以及编写此网站</div>
+                            </div>
+                        </a>
+
+                        
+                        <!-- 假装内容很多以触发滚动 -->
+                        <div class="p-4 text-xs text-gray-600 text-center mt-4">
+                            - END OF TRANSMISSION -<br>
+                            Copyright © BZM & ZYHan
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部 Banner -->
+        <div class="glass bottom-banner interactive w-full md:w-2/3 lg:w-1/2 mb-0 rounded-t-lg border-b-0">
+            <div id="future-date" class="text-lg font-mono text-purple-300"></div>
+            <div class="text-[10px] text-gray-500 tracking-wider mt-1">BZM'S HOMEPAGE</div>
+        </div>
+    </div>
+
+    <!-- 辅助 UI -->
+    <button id="reset-cam-btn" class="interactive glass rounded hover:bg-purple-900/50" onclick="yanaResetCamera()">
+        <i class="fa-solid fa-rotate-left"></i> 复位视角
+    </button>
+    <div id="blackhole-pointer"><i class="fa-solid fa-arrow-left"></i></div>
+
+    <!-- Three.js 逻辑 -->
+    <!-- 使用模块化加载，因为这是现代浏览器标准 -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        // --- 全局变量定义 ---
+        let scene, camera, renderer, composer;
+        let controls;
+        let blackHoleMesh, accretionDisk, accretionDiskVertical; // 垂直环变量
+        let starSystem, cloudSystem;
+        let mouse = new THREE.Vector2(-9999, -9999); // 初始在屏幕外
+        let targetRotation = { x: 0, y: 0 };
+        let isCardOpen = false;
+        let clock = new THREE.Clock();
+        let lastMouseMoveTime = 0;
+        
+        // 自定义 Shader Pass 变量
+        let distortionPass, finalPass;
+
+        // UI 元素
+        const pointerEl = document.getElementById('blackhole-pointer');
+        const resetBtn = document.getElementById('reset-cam-btn');
+
+        // --- 1. 初始化场景 ---
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            // 场景
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050505, 0.002); // 远处稍微有点雾
+
+            // 相机
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 0, 12); // 默认位置
+            
+            // 渲染器
+            renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" }); // 后处理会自带抗锯齿效果，这里关掉省性能
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 限制像素比，照顾老设备
+            container.appendChild(renderer.domElement);
+
+            // 控制器 (允许拖拽视角)
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.enableZoom = false; // 禁用缩放，只允许旋转
+            controls.enablePan = false;  // 禁用平移
+            controls.rotateSpeed = 0.5;
+            // 限制旋转角度，防止看到穿帮的背面太严重（虽然我们会做得比较好）
+            controls.minPolarAngle = Math.PI / 4;
+            controls.maxPolarAngle = Math.PI * 0.75;
+            
+            // 监听控制器变化以显示复位按钮
+            controls.addEventListener('change', () => {
+                // 简单的判断：如果相机位置偏离初始位置太多
+                if (camera.position.distanceTo(new THREE.Vector3(0,0,12)) > 0.1 || Math.abs(camera.rotation.y) > 0.1) {
+                    resetBtn.classList.add('show');
+                }
+                updatePointer();
+            });
+
+            // --- 2. 创建物体 ---
+            createStars();
+            createClouds();
+            createBlackHole();
+
+            // --- 3. 后处理链 (这是画面的灵魂) ---
+            initPostProcessing();
+
+            // --- 4. 事件监听 ---
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('mousemove', onMouseMove);
+            
+            // 移动端也需要模拟鼠标移动来触发引力波
+            document.addEventListener('touchmove', (e) => {
+                if(e.touches.length > 0) {
+                    const touch = e.touches[0];
+                    mouse.x = (touch.clientX / window.innerWidth) * 2 - 1;
+                    mouse.y = -(touch.clientY / window.innerHeight) * 2 + 1;
+                    lastMouseMoveTime = clock.getElapsedTime();
+                }
+            }, { passive: false });
+
+            // 启动动画循环
+            animate();
+            
+            // 初始化 UI 日期
+            const futureYear = new Date().getFullYear() + 100;
+            const month = String(new Date().getMonth() + 1).padStart(2, '0');
+            const day = String(new Date().getDate()).padStart(2, '0');
+            document.getElementById('future-date').innerText = `${futureYear}.${month}.${day}`;
+            
+            // 初始对齐黑洞
+            adjustBlackHolePosition();
+        }
+
+        // --- 场景构建函数 ---
+
+        function createStars() {
+            // 使用 BufferGeometry 创建大量星星，这是最省性能的方法
+            const geometry = new THREE.BufferGeometry();
+            const count = 3000; // 不用太多，要有层次感
+            const positions = new Float32Array(count * 3);
+            const sizes = new Float32Array(count);
+            const colors = new Float32Array(count * 3);
+
+            for (let i = 0; i < count; i++) {
+                // 随机分布在一个球体内
+                const r = 50 + Math.random() * 200;
+                const theta = 2 * Math.PI * Math.random();
+                const phi = Math.acos(2 * Math.random() - 1);
+                
+                positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+                positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+                positions[i * 3 + 2] = r * Math.cos(phi);
+
+                sizes[i] = Math.random() * 2;
+                
+                // 颜色稍微偏蓝紫
+                const color = new THREE.Color();
+                color.setHSL(0.6 + Math.random() * 0.2, 0.8, 0.8);
+                colors[i * 3] = color.r;
+                colors[i * 3 + 1] = color.g;
+                colors[i * 3 + 2] = color.b;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            // 自定义 Shader 材质让星星看起来圆润发光，而不是方块
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 },
+                    pixelRatio: { value: renderer.getPixelRatio() }
+                },
+                vertexShader: `
+                    uniform float pixelRatio;
+                    uniform float time;
+                    attribute float size;
+                    attribute vec3 color;
+                    varying vec3 vColor;
+                    void main() {
+                        vColor = color;
+                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                        // 星星闪烁
+                        float twinkle = 0.8 + 0.2 * sin(time * 2.0 + position.x);
+                        gl_PointSize = size * pixelRatio * (300.0 / -mvPosition.z) * twinkle;
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vColor;
+                    void main() {
+                        // 画圆
+                        vec2 coord = gl_PointCoord - vec2(0.5);
+                        if(length(coord) > 0.5) discard;
+                        
+                        // 边缘柔化
+                        float strength = 1.0 - (length(coord) * 2.0);
+                        strength = pow(strength, 2.0);
+                        
+                        gl_FragColor = vec4(vColor, strength);
+                    }
+                `,
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+
+            starSystem = new THREE.Points(geometry, material);
+            scene.add(starSystem);
+        }
+
+        function createClouds() {
+            // 简单的随机云雾片，增加空间深度感
+            const geometry = new THREE.PlaneGeometry(80, 80);
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    uniform float time;
+                    void main() {
+                        vUv = uv;
+                        // 稍微动一下顶点
+                        vec3 pos = position;
+                        // 让它永远朝向相机 (Billboard 逻辑可以在 JS 做，也可以简化)
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    varying vec2 vUv;
+                    uniform float time;
+                    
+                    // 简单的伪随机噪声
+                    float random(vec2 st) {
+                        return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+                    }
+                    
+                    float noise(vec2 st) {
+                        vec2 i = floor(st);
+                        vec2 f = fract(st);
+                        float a = random(i);
+                        float b = random(i + vec2(1.0, 0.0));
+                        float c = random(i + vec2(0.0, 1.0));
+                        float d = random(i + vec2(1.0, 1.0));
+                        vec2 u = f * f * (3.0 - 2.0 * f);
+                        return mix(a, b, u.x) + (c - a)* u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+                    }
+
+                    void main() {
+                        vec2 uv = vUv;
+                        float n = noise(uv * 3.0 + time * 0.05);
+                        n += noise(uv * 6.0 - time * 0.02) * 0.5;
+                        
+                        // 紫色调
+                        vec3 color = vec3(0.4, 0.1, 0.6) * 0.3;
+                        float alpha = smoothstep(0.4, 0.8, n) * 0.3;
+                        
+                        // 边缘淡出
+                        float dist = distance(uv, vec2(0.5));
+                        alpha *= (1.0 - smoothstep(0.0, 0.5, dist));
+
+                        gl_FragColor = vec4(color, alpha);
+                    }
+                `,
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide
+            });
+
+            cloudSystem = new THREE.Group();
+            // 随机放几片云
+            for(let i=0; i<5; i++) {
+                const cloud = new THREE.Mesh(geometry, material.clone()); // 克隆材质以便可能有不同的 uniforms
+                cloud.position.set(
+                    (Math.random() - 0.5) * 60,
+                    (Math.random() - 0.5) * 30,
+                    -20 - Math.random() * 30
+                );
+                cloud.rotation.z = Math.random() * Math.PI;
+                cloudSystem.add(cloud);
+            }
+            scene.add(cloudSystem);
+        }
+
+        function createBlackHole() {
+            // 1. 事件视界 (核心黑球)
+            const bhGeo = new THREE.SphereGeometry(2, 64, 64);
+            const bhMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            blackHoleMesh = new THREE.Mesh(bhGeo, bhMat);
+            //blackHoleMesh = new THREE.Group();
+            
+            // 公共材质 (两个环都用这个)
+            const discMat = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    void main() {
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    varying vec2 vUv;
+                    uniform float time;
+                    
+                    void main() {
+                        // 简单的纹理模拟
+                        float angle = vUv.x * 20.0 + time;
+                        float brightness = 0.5 + 0.5 * sin(angle);
+                        
+                        // 径向渐变，中间亮两边暗
+                        float radial = 1.0 - abs(vUv.y - 0.5) * 2.0;
+                        radial = pow(radial, 2.0);
+
+                        // 颜色：核心白，边缘紫/红
+                        vec3 coreColor = vec3(1.0, 0.9, 0.8);
+                        vec3 edgeColor = vec3(0.5, 0.0, 0.8);
+                        vec3 color = mix(edgeColor, coreColor, brightness * radial);
+                        
+                        gl_FragColor = vec4(color, radial * 0.9);
+                    }
+                `,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide
+            });
+
+            // 2. 吸积盘 1 (水平)
+            const discGeo = new THREE.TorusGeometry(3.5, 0.8, 2, 100); // 压扁的环
+            discGeo.rotateX(Math.PI / 2.3); 
+            accretionDisk = new THREE.Mesh(discGeo, discMat);
+            blackHoleMesh.add(accretionDisk);
+
+            // 3. 吸积盘 2 (垂直)
+            const discGeoVertical = new THREE.TorusGeometry(3.5, 0.8, 2, 100);
+            // 旋转 90度让它竖起来，稍微倾斜一点点增加动感
+            discGeoVertical.rotateY(Math.PI / 2);
+            accretionDiskVertical = new THREE.Mesh(discGeoVertical, discMat); // 共享材质，这样时间统一
+            blackHoleMesh.add(accretionDiskVertical);
+            accretionDiskVertical.rotation.x = Math.PI / 2;
+
+            scene.add(blackHoleMesh);
+
+            // 初始位置：左侧
+            blackHoleMesh.position.set(-6, 0, -5);
+            // 整体倾斜
+            blackHoleMesh.rotation.z = Math.PI / 8;
+            blackHoleMesh.rotation.x = Math.PI / 12;
+        }
+
+        // --- 后处理 (Distortion & FX) ---
+        function initPostProcessing() {
+            composer = new EffectComposer(renderer);
+            
+            const renderPass = new RenderPass(scene, camera);
+            composer.addPass(renderPass);
+
+            // 1. Bloom (辉光)
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+            bloomPass.threshold = 0.2;
+            bloomPass.strength = 1.2; 
+            bloomPass.radius = 0.5;
+            composer.addPass(bloomPass);
+
+            // 2. 引力透镜 (修复版)
+            const finalShader = {
+                uniforms: {
+                    tDiffuse: { value: null },
+                    uTime: { value: 0 },
+                    uBlackHoleScreenPos: { value: new THREE.Vector2(0.5, 0.5) },
+                    uBlackHoleActive: { value: 1.0 },
+                    uMouse: { value: new THREE.Vector2(-1, -1) },
+                    uMouseDistortStrength: { value: 0.0 },
+                    uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    void main() {
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform sampler2D tDiffuse;
+                    uniform float uTime;
+                    uniform vec2 uBlackHoleScreenPos;
+                    uniform float uBlackHoleActive;
+                    uniform vec2 uMouse;
+                    uniform float uMouseDistortStrength;
+                    uniform vec2 uResolution;
+                    varying vec2 vUv;
+
+                    float random(vec2 st) {
+                        return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+                    }
+
+                    void main() {
+                        vec2 uv = vUv;
+                        vec2 distUV = uv;
+
+                        
+                        // --- 鼠标空间扭曲 ---
+                        if (uMouseDistortStrength > 0.01) {
+                             float aspect = uResolution.x / uResolution.y;
+                             vec2 aspectCorrection = vec2(aspect, 1.0);
+                             float mDist = distance(uv * aspectCorrection, uMouse * aspectCorrection);
+                             
+                             if (mDist < 0.2) {
+                                 float mForce = (1.0 - mDist / 0.2) * uMouseDistortStrength * 0.05;
+                                 vec2 mDir = normalize(uv - uMouse);
+                                 float angle = uTime * 2.0;
+                                 mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
+                                 vec2 swirledDir = rot * mDir;
+                                 distUV -= swirledDir * mForce;
+                             }
+                        }
+
+                        // --- 色差 ---
+                        float distToCenter = distance(uv, vec2(0.5));
+                        vec2 caOffset = vec2(distToCenter * 0.005, 0.0);
+                        
+                        float r = texture2D(tDiffuse, distUV + caOffset).r;
+                        float g = texture2D(tDiffuse, distUV).g;
+                        float b = texture2D(tDiffuse, distUV - caOffset).b;
+                        
+                        vec3 color = vec3(r, g, b);
+
+                        // --- 噪点 ---
+                        float noise = random(uv + uTime) * 0.08;
+                        color += noise;
+
+                        // --- 晕影 ---
+                        float vignette = smoothstep(1.5, 0.5, distToCenter);
+                        color *= vignette;
+
+                        gl_FragColor = vec4(color, 1.0);
+                    }
+                `
+            };
+
+            finalPass = new ShaderPass(finalShader);
+            composer.addPass(finalPass);
+        }
+
+        // --- 逻辑循环 ---
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const elapsedTime = clock.getElapsedTime();
+            const delta = clock.getDelta();
+
+            // 1. 旋转黑洞盘
+            if(accretionDisk) {
+                accretionDisk.rotation.y = elapsedTime * 0.2; // 水平环慢速自转
+            }
+            if(accretionDiskVertical) {
+                accretionDiskVertical.rotation.z = -elapsedTime * 0.25; // 垂直环反向转一点，稍微快点
+            }
+
+            // 2. 更新 Shader Uniforms
+            if(starSystem) starSystem.material.uniforms.time.value = elapsedTime;
+            if(blackHoleMesh) {
+                // 两个环共享同一个 material 引用，所以更新一个就行了
+                accretionDisk.material.uniforms.time.value = elapsedTime;
+            }
+            
+            // 3. 计算黑洞的屏幕坐标
+            if(blackHoleMesh) {
+                const vector = blackHoleMesh.position.clone();
+                vector.project(camera); 
+                
+                if (vector.z < 1) {
+                     const screenX = (vector.x + 1) / 2;
+                     const screenY = (-vector.y + 1) / 2;
+                     finalPass.uniforms.uBlackHoleScreenPos.value.set(screenX, screenY);
+                     finalPass.uniforms.uBlackHoleActive.value = 1.0;
+                } else {
+                     finalPass.uniforms.uBlackHoleActive.value = 0.0;
+                }
+            }
+
+            // 4. 鼠标扭曲淡出逻辑
+            if (elapsedTime - lastMouseMoveTime > 2.0) {
+                finalPass.uniforms.uMouseDistortStrength.value = THREE.MathUtils.lerp(finalPass.uniforms.uMouseDistortStrength.value, 0, 0.05);
+            } else {
+                finalPass.uniforms.uMouseDistortStrength.value = THREE.MathUtils.lerp(finalPass.uniforms.uMouseDistortStrength.value, 1, 0.1);
+            }
+            
+            finalPass.uniforms.uMouse.value.copy(mouse);
+            finalPass.uniforms.uTime.value = elapsedTime;
+
+            // 5. 更新 UI 指针
+            updatePointer();
+
+            controls.update();
+            composer.render();
+        }
+
+        // --- 交互与事件 ---
+
+        function onMouseMove(event) {
+            mouse.x = event.clientX / window.innerWidth;
+            mouse.y = 1.0 - (event.clientY / window.innerHeight);
+            lastMouseMoveTime = clock.getElapsedTime();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+            finalPass.uniforms.uResolution.value.set(window.innerWidth, window.innerHeight);
+            
+            adjustBlackHolePosition();
+        }
+        
+        function adjustBlackHolePosition() {
+            if (window.innerWidth > 768) {
+                blackHoleMesh.position.set(-6, 0, -5);
+            } else {
+                blackHoleMesh.position.set(0, 3, -8);
+            }
+        }
+
+        function updatePointer() {
+            if (!blackHoleMesh) return;
+            const bhPos = blackHoleMesh.position.clone();
+            bhPos.project(camera);
+            const isOffScreen = Math.abs(bhPos.x) > 0.95 || Math.abs(bhPos.y) > 0.95 || bhPos.z > 1;
+
+            if (isOffScreen) {
+                pointerEl.style.opacity = 0.8;
+                const centerX = 0; 
+                const centerY = 0;
+                const dx = bhPos.x - centerX;
+                const dy = bhPos.y - centerY; 
+                let angle = Math.atan2(dy, dx); 
+                const padding = 40;
+                const width = window.innerWidth / 2 - padding;
+                const height = window.innerHeight / 2 - padding;
+                let screenX = Math.cos(angle) * width + window.innerWidth / 2;
+                let screenY = -Math.sin(angle) * height + window.innerHeight / 2;
+                pointerEl.style.left = `${screenX - 20}px`;
+                pointerEl.style.top = `${screenY - 20}px`;
+                const rotationDeg = -(angle * 180 / Math.PI);
+                pointerEl.style.transform = `rotate(${rotationDeg}deg)`; 
+            } else {
+                pointerEl.style.opacity = 0;
+            }
+        }
+
+        window.yanaToggleCard = function() {
+            isCardOpen = !isCardOpen;
+            const card = document.getElementById('main-card');
+            const bannerText = document.getElementById('banner-text');
+            const bannerIcon = document.getElementById('banner-icon');
+
+            if (isCardOpen) {
+                card.classList.add('active');
+                bannerText.classList.add('hidden');
+                bannerIcon.classList.remove('hidden');
+                bannerIcon.classList.add('text-swap-enter');
+            } else {
+                card.classList.remove('active');
+                bannerText.classList.remove('hidden');
+                bannerIcon.classList.add('hidden');
+                bannerText.classList.add('text-swap-enter');
+                setTimeout(() => {
+                    bannerText.classList.remove('text-swap-enter');
+                    bannerIcon.classList.remove('text-swap-enter');
+                }, 300);
+            }
+        };
+
+        window.yanaResetCamera = function() {
+            controls.reset(); 
+            resetBtn.classList.remove('show');
+        };
+        
+        const scrollArea = document.getElementById('card-scroll-area');
+        const bars = {
+            top: document.getElementById('bar-top'),
+            right: document.getElementById('bar-right'),
+            bottom: document.getElementById('bar-bottom'),
+            left: document.getElementById('bar-left')
+        };
+
+        scrollArea.addEventListener('scroll', () => {
+            const scrollTop = scrollArea.scrollTop;
+            const scrollHeight = scrollArea.scrollHeight - scrollArea.clientHeight;
+            const progress = scrollTop / scrollHeight; 
+
+            bars.top.style.width = '0';
+            bars.right.style.height = '0';
+            bars.bottom.style.width = '0';
+            bars.left.style.height = '0';
+
+            if (progress > 0) {
+                const p1 = Math.min(progress * 4, 1);
+                bars.top.style.width = `${p1 * 100}%`;
+            }
+            if (progress > 0.25) {
+                const p2 = Math.min((progress - 0.25) * 4, 1);
+                bars.right.style.height = `${p2 * 100}%`;
+            }
+            if (progress > 0.5) {
+                const p3 = Math.min((progress - 0.5) * 4, 1);
+                bars.bottom.style.width = `${p3 * 100}%`;
+            }
+            if (progress > 0.75) {
+                const p4 = Math.min((progress - 0.75) * 4, 1);
+                bars.left.style.height = `${p4 * 100}%`;
+            }
+        });
+
+        init();
+    </script>
+</body>
+</html>
